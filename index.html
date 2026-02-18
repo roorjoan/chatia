@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>AI Chat Minimalista</title>
+
+        <link
+            href="https://cdn.jsdelivr.net/npm/daisyui@4.7.2/dist/full.min.css"
+            rel="stylesheet"
+            type="text/css"
+        />
+        <script src="https://cdn.tailwindcss.com"></script>
+
+        <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+        <style>
+            .no-scrollbar::-webkit-scrollbar {
+                display: none;
+            }
+            .chat-container {
+                height: calc(100vh - 160px);
+            }
+            .prose-custom pre {
+                background: #111;
+                padding: 1rem;
+                border-radius: 0.75rem;
+                margin: 0.5rem 0;
+                overflow-x: auto;
+            }
+        </style>
+    </head>
+    <body class="bg-base-200 min-h-screen">
+        <div
+            id="app"
+            class="max-w-3xl mx-auto h-screen flex flex-col p-2 md:p-4"
+        >
+            <header class="navbar bg-base-100 rounded-box shadow-sm mb-4 px-6">
+                <div class="flex-1 gap-2">
+                    <i class="ph-fill ph-sparkle text-primary text-2xl"></i>
+                    <h1 class="font-bold text-lg tracking-tight">
+                        DeepSeek R1
+                        <span class="badge badge-sm badge-ghost opacity-50"
+                            >Free</span
+                        >
+                    </h1>
+                </div>
+                <div class="flex-none gap-2">
+                    <button
+                        @click="clearChat"
+                        class="btn btn-ghost btn-sm btn-circle"
+                    >
+                        <i class="ph ph-trash text-lg"></i>
+                    </button>
+                    <label
+                        class="swap swap-rotate btn btn-ghost btn-sm btn-circle"
+                    >
+                        <input
+                            type="checkbox"
+                            v-model="isDark"
+                            @change="toggleTheme"
+                        />
+                        <i class="ph ph-sun swap-on text-xl"></i>
+                        <i class="ph ph-moon swap-off text-xl"></i>
+                    </label>
+                </div>
+            </header>
+
+            <main
+                ref="scrollTarget"
+                class="chat-container overflow-y-auto space-y-4 px-2 no-scrollbar flex-grow bg-base-100 rounded-box p-6 shadow-sm border border-base-300/50"
+            >
+                <div
+                    v-if="messages.length === 0"
+                    class="h-full flex flex-col items-center justify-center opacity-30 text-center"
+                >
+                    <i class="ph ph-brain text-7xl mb-4"></i>
+                    <p class="text-xl font-light italic">
+                        ¿Qué tienes en mente hoy?
+                    </p>
+                </div>
+
+                <div
+                    v-for="(msg, i) in messages"
+                    :key="i"
+                    class="chat"
+                    :class="msg.role === 'user' ? 'chat-end' : 'chat-start'"
+                >
+                    <div
+                        class="chat-bubble shadow-sm"
+                        :class="msg.role === 'user' ? 'chat-bubble-primary' : 'chat-bubble-neutral text-base-content'"
+                    >
+                        <div
+                            class="prose-custom text-sm md:text-base"
+                            v-html="parseMd(msg.content)"
+                        ></div>
+                    </div>
+                </div>
+
+                <div v-if="loading" class="chat chat-start">
+                    <div
+                        class="chat-bubble chat-bubble-neutral flex gap-2 items-center opacity-70"
+                    >
+                        <span class="loading loading-dots loading-sm"></span>
+                    </div>
+                </div>
+            </main>
+
+            <footer class="mt-4">
+                <div
+                    class="relative flex items-center bg-base-100 rounded-2xl shadow-lg border border-base-300 p-2 focus-within:ring-2 ring-primary/20 transition-all"
+                >
+                    <textarea
+                        v-model="userInput"
+                        @keydown.enter.exact.prevent="sendMessage"
+                        placeholder="Pregunta cualquier cosa..."
+                        class="textarea textarea-ghost w-full resize-none focus:outline-none bg-transparent text-base min-h-[48px] max-h-32 py-3"
+                        rows="1"
+                        :disabled="loading"
+                    ></textarea>
+
+                    <button
+                        @click="sendMessage"
+                        :disabled="loading || !userInput.trim()"
+                        class="btn btn-primary btn-circle shadow-md"
+                    >
+                        <i class="ph-bold ph-paper-plane-right text-lg"></i>
+                    </button>
+                </div>
+                <p
+                    class="text-[10px] text-center mt-3 opacity-30 tracking-widest uppercase"
+                >
+                    Powered by OpenRouter & DeepSeek
+                </p>
+            </footer>
+        </div>
+
+        <script>
+            const { createApp, ref, onMounted, nextTick } = Vue;
+
+            createApp({
+                setup() {
+                    // CONFIGURACIÓN BASADA EN TU FETCH
+                    const API_KEY =
+                        "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";
+                    const MODEL_ID = "deepseek/deepseek-r1-0528:free";
+
+                    // ESTADO REACCIONA
+                    const userInput = ref("");
+                    const messages = ref([]);
+                    const loading = ref(false);
+                    const scrollTarget = ref(null);
+                    const isDark = ref(true);
+
+                    const toggleTheme = () => {
+                        const theme = isDark.value ? "dark" : "light";
+                        document
+                            .querySelector("html")
+                            .setAttribute("data-theme", theme);
+                    };
+
+                    const parseMd = (content) => marked.parse(content);
+
+                    const scrollToBottom = async () => {
+                        await nextTick();
+                        if (scrollTarget.value) {
+                            scrollTarget.value.scrollTop =
+                                scrollTarget.value.scrollHeight;
+                        }
+                    };
+
+                    const sendMessage = async () => {
+                        if (!userInput.value.trim() || loading.value) return;
+
+                        const currentInput = userInput.value;
+                        messages.value.push({
+                            role: "user",
+                            content: currentInput,
+                        });
+                        userInput.value = "";
+                        loading.value = true;
+                        scrollToBottom();
+
+                        try {
+                            // IMPLEMENTACIÓN EXACTA DE TU FETCH
+                            const response = await fetch(
+                                "https://openrouter.ai/api/v1/chat/completions",
+                                {
+                                    method: "POST",
+                                    headers: {
+                                        Authorization: `Bearer ${API_KEY}`,
+                                        "HTTP-Referer": "http://localhost:3000", // Reemplaza por tu URL si lo subes a un sitio
+                                        "X-Title": "AI Chat Minimal",
+                                        "Content-Type": "application/json",
+                                    },
+                                    body: JSON.stringify({
+                                        model: MODEL_ID,
+                                        messages: messages.value, // Pasamos todo el historial acumulado
+                                    }),
+                                },
+                            );
+
+                            const data = await response.json();
+
+                            if (data.error) throw new Error(data.error.message);
+
+                            if (data.choices && data.choices[0]) {
+                                messages.value.push(data.choices[0].message);
+                            }
+                        } catch (error) {
+                            messages.value.push({
+                                role: "assistant",
+                                content: `⚠️ **Error:** ${error.message}`,
+                            });
+                        } finally {
+                            loading.value = false;
+                            scrollToBottom();
+                        }
+                    };
+
+                    const clearChat = () => {
+                        messages.value = [];
+                    };
+
+                    onMounted(() => {
+                        toggleTheme();
+                    });
+
+                    return {
+                        userInput,
+                        messages,
+                        loading,
+                        scrollTarget,
+                        isDark,
+                        toggleTheme,
+                        parseMd,
+                        sendMessage,
+                        clearChat,
+                    };
+                },
+            }).mount("#app");
+        </script>
+    </body>
+</html>
